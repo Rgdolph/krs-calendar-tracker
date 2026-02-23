@@ -71,14 +71,27 @@
         }
 
         async function syncCalendars() {
-            const bounds = getWeekBounds(WEEK);
-            const scriptUrl = APPS_SCRIPT_URL 
-                + '?start=' + bounds.start 
-                + '&end=' + bounds.end 
-                + '&redirect=true'
-                + '&returnUrl=' + encodeURIComponent(window.location.origin + '/api/sync-redirect?week=' + WEEK);
-            // Redirect to Apps Script — it fetches data and auto-submits back to Flask
-            window.location.href = scriptUrl;
+            const btn = document.getElementById('sync-btn');
+            btn.disabled = true; btn.textContent = '⏳ Syncing...';
+            try {
+                const r = await fetch('/api/sync', { 
+                    method: 'POST', 
+                    headers: {'Content-Type': 'application/json'}, 
+                    body: JSON.stringify({week: WEEK}) 
+                });
+                const d = await r.json();
+                if (d.synced !== undefined) {
+                    showToast('Synced ' + d.synced + ' events for ' + WEEK);
+                    setTimeout(() => location.reload(), 1000);
+                } else if (d.error) {
+                    showToast('Sync error: ' + d.error);
+                } else {
+                    showToast('Sync triggered — Apps Script will push data automatically');
+                }
+            } catch(e) { 
+                showToast('Sync failed: ' + e.message); 
+            }
+            btn.disabled = false; btn.textContent = '📅 Sync Calendars';
         }
 
         async function classifyAll() {
