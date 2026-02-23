@@ -6,8 +6,10 @@ from datetime import datetime
 DB_PATH = os.path.join(os.path.dirname(__file__), "krs_calendar.db")
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
     return conn
 
 def init_db():
@@ -51,6 +53,20 @@ def upsert_event(event):
             end_time=excluded.end_time, description=excluded.description, location=excluded.location
     """, (event['id'], event['agent_name'], event['title'], event['start_time'],
           event.get('end_time',''), event.get('description',''), event.get('location',''), event['week_key']))
+    conn.commit()
+    conn.close()
+
+def upsert_events_bulk(events):
+    """Insert/update many events in a single transaction."""
+    conn = get_db()
+    for event in events:
+        conn.execute("""
+            INSERT INTO events (id, agent_name, title, start_time, end_time, description, location, week_key)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(agent_name, title, start_time, week_key) DO UPDATE SET
+                end_time=excluded.end_time, description=excluded.description, location=excluded.location
+        """, (event['id'], event['agent_name'], event['title'], event['start_time'],
+              event.get('end_time',''), event.get('description',''), event.get('location',''), event['week_key']))
     conn.commit()
     conn.close()
 

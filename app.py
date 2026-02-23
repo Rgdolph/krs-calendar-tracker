@@ -113,14 +113,12 @@ def sync():
                 "is_all_day": ev.get("allDay", False),
                 "status": ev.get("status", "confirmed")
             })
-        for e in events:
-            db.upsert_event(e)
+        db.upsert_events_bulk(events)
         return jsonify({"synced": len(events), "week": wk})
     
     # Fallback: try server-side fetch
     events = calendar_source.fetch_events(wk)
-    for e in events:
-        db.upsert_event(e)
+    db.upsert_events_bulk(events)
     return jsonify({"synced": len(events), "week": wk})
 
 @app.route("/api/sync-redirect", methods=["POST"])
