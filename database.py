@@ -57,18 +57,27 @@ def upsert_event(event):
     conn.close()
 
 def upsert_events_bulk(events):
-    """Insert/update many events in a single transaction."""
-    conn = get_db()
-    for event in events:
-        conn.execute("""
-            INSERT INTO events (id, agent_name, title, start_time, end_time, description, location, week_key)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(agent_name, title, start_time, week_key) DO UPDATE SET
-                end_time=excluded.end_time, description=excluded.description, location=excluded.location
-        """, (event['id'], event['agent_name'], event['title'], event['start_time'],
-              event.get('end_time',''), event.get('description',''), event.get('location',''), event['week_key']))
-    conn.commit()
-    conn.close()
+    """Insert/update many events in a single transaction with retry."""
+    import time
+    for attempt in range(3):
+        try:
+            conn = get_db()
+            for event in events:
+                conn.execute("""
+                    INSERT INTO events (id, agent_name, title, start_time, end_time, description, location, week_key)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(agent_name, title, start_time, week_key) DO UPDATE SET
+                        end_time=excluded.end_time, description=excluded.description, location=excluded.location
+                """, (event['id'], event['agent_name'], event['title'], event['start_time'],
+                      event.get('end_time',''), event.get('description',''), event.get('location',''), event['week_key']))
+            conn.commit()
+            conn.close()
+            return
+        except sqlite3.OperationalError as e:
+            if "locked" in str(e) and attempt < 2:
+                time.sleep(1)
+                continue
+            raise
 
 def get_events_for_week(week_key, agent_name=None):
     conn = get_db()
