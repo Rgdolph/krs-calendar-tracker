@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KRS Calendar Tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: { extend: { colors: {
+                krs: { 50:'#f0fdf4', 100:'#dcfce7', 500:'#22c55e', 600:'#16a34a', 700:'#15803d', 800:'#166534' }
+            }}}
+        }
+    </script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <nav class="bg-white shadow-sm border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+            <a href="/" class="text-xl font-bold text-krs-700">&#128273; KRS Calendar Tracker</a>
+            <div class="flex gap-2">
+                <button onclick="syncCalendars()" id="sync-btn" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition">&#128197; Sync Calendars</button>
+                <button onclick="classifyAll()" id="classify-btn" class="bg-krs-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-krs-700 transition">&#129302; Classify All</button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Classification progress bar -->
+    <div id="progress-bar" class="hidden">
+        <div class="max-w-7xl mx-auto px-4 pt-4">
+            <div class="bg-white rounded-lg shadow-sm border p-4">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-sm font-medium text-gray-700" id="progress-label">Classifying events...</span>
+                    <span class="text-sm text-gray-500" id="progress-count">0 / 0</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-3">
+                    <div id="progress-fill" class="bg-krs-600 h-3 rounded-full transition-all duration-300" style="width: 0%"></div>
+                </div>
+                <p class="text-xs text-gray-400 mt-1" id="progress-current"></p>
+            </div>
+        </div>
+    </div>
+
+    <main class="max-w-7xl mx-auto px-4 py-6">
+        <div id="toast" class="hidden fixed top-4 right-4 bg-krs-600 text-white px-4 py-2 rounded-lg shadow-lg z-50"></div>
+        {% block content %}{% endblock %}
+    </main>
+    <script>
+        const WEEK = '{{ week }}';
+        const APPS_SCRIPT_URL = '{{ config.apps_script_url }}';
+        let pollTimer = null;
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.textContent = msg; t.classList.remove('hidden');
+            setTimeout(() => t.classList.add('hidden'), 4000);
+        }
+
+        function getWeekBounds(weekKey) {
+            // Parse YYYY-Www to get Monday and Sunday dates
+            const year = parseInt(weekKey.substring(0, 4));
+            const week = parseInt(weekKey.split('W')[1]);
+            // ISO week date to calendar date
+            const jan4 = new Date(year, 0, 4);
+            const dayOfWeek = jan4.getDay() || 7;
+            const monday = new Date(jan4);
+            monday.setDate(jan4.getDate() - dayOfWeek + 1 + (week - 1) * 7);
+            const sunday = new Date(monday);
+            sunday.setDate(monday.getDate() + 6);
+            const fmt = d => d.toISOString().split('T')[0];
+            return { start: fmt(monday), end: fmt(sunday) };
+        }
+
+        async function syncCalendars() {
+            const bounds = getWeekBounds(WEEK);
+            const scriptUrl = APPS_SCRIPT_URL 
+                + '?start=' + bounds.start 
+                + '&end=' + bounds.end 
+                + '&redirect=true'
+                + '&returnUrl=' + encodeURIComponent(window.location.origin + '/api/sync-redirect?week=' + WEEK);
+            // Redirect to Apps Script — it fetches data and auto-submits back to Flask
+            window.location.href = scriptUrl;
+        }
+
+        async function classifyAll() {
+            const btn = document.getElementById('classify-btn');
+            btn.disabled = true; btn.textContent = 'Starting...';
+            try {
+                const r = await fetch('/api/classify', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({week:WEEK}) });
+                const d = await r.json();
+                if (d.status === 'done') {
+                    showToast('All events already classified!');
+                    btn.disabled = false; btn.textContent = '\u{1F916} Classify All';
+                    return;
+                }
+                // Show progress bar and start polling
+                document.getElementById('progress-bar').classList.remove('hidden');
+                document.getElementById('progress-count').textContent = '0 / ' + (d.total || '?');
+                startPolling();
+            } catch(e) { showToast('Failed: ' + e.message); }
+        }
+
+        function startPolling() {
+            pollTimer = setInterval(async () => {
+                try {
+                    const r = await fetch('/api/classify/progress?week=' + WEEK);
+                    const p = await r.json();
+                    const pct = p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
+                    document.getElementById('progress-fill').style.width = pct + '%';
+                    document.getElementById('progress-count').textContent = p.done + ' / ' + p.total;
+                    document.getElementById('progress-current').textContent = p.current ? ('Classifying: ' + p.current) : '';
+                    document.getElementById('progress-label').textContent = p.running
+                        ? 'Classifying with AI (' + pct + '%)...'
+                        : 'Classification complete!';
+
+                    if (!p.running) {
+                        clearInterval(pollTimer);
+                        showToast('Classified ' + p.done + ' events!');
+                        setTimeout(() => location.reload(), 1500);
+                    }
+                } catch(e) { /* ignore poll errors */ }
+            }, 2000);
+        }
+
+        async function toggleOverride(eventId, current) {
+            const newClass = current === 'sales' ? 'not_sales' : 'sales';
+            await fetch('/api/override', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({event_id:eventId, classification:newClass}) });
+            location.reload();
+        }
+    </script>
+</body>
+</html>

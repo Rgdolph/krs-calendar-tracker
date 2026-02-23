@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="mb-4"><a href="/?week={{ week }}" class="text-krs-600 hover:underline">&larr; Back to Dashboard</a></div>
+
+<div class="flex items-center justify-between mb-6">
+    <a href="/agent/{{ agent_name }}?week={{ prev_week }}" class="text-gray-600 hover:text-gray-900 bg-white px-4 py-2 rounded-lg shadow-sm border">&larr; Previous</a>
+    <div class="text-center">
+        <h2 class="text-2xl font-bold text-gray-800">{{ agent_name }}</h2>
+        <p class="text-sm text-gray-500">{{ week_display }}</p>
+    </div>
+    <a href="/agent/{{ agent_name }}?week={{ next_week }}" class="text-gray-600 hover:text-gray-900 bg-white px-4 py-2 rounded-lg shadow-sm border">Next &rarr;</a>
+</div>
+
+{% if events %}
+<div class="space-y-2">
+    {% for event in events %}
+    {% set eff = event.override or event.classification %}
+    <div class="bg-white rounded-lg shadow-sm border p-4 flex items-center justify-between
+        {% if eff == 'sales' %}border-l-4 border-l-green-500{% elif eff == 'not_sales' %}border-l-4 border-l-gray-300{% else %}border-l-4 border-l-yellow-400{% endif %}">
+        <div class="flex-1">
+            <div class="font-medium text-gray-800">{{ event.title or '(no title)' }}</div>
+            <div class="text-sm text-gray-500">
+                {{ event.start_time[:16].replace('T', ' ') if event.start_time else '' }}
+                {% if event.location %} &middot; &#128205; {{ event.location }}{% endif %}
+            </div>
+            {% if event.ai_reasoning %}
+            <div class="text-xs text-gray-400 mt-1">AI: {{ event.ai_reasoning }}{% if event.override %} <span class="text-orange-500 font-medium">(you overrode this)</span>{% endif %}</div>
+            {% endif %}
+        </div>
+        <div class="ml-4">
+            {% if eff == 'sales' %}
+            <button onclick="reclassify('{{ event.id }}', 'not_sales')"
+                class="bg-green-100 text-green-700 hover:bg-red-100 hover:text-red-700 px-4 py-2 rounded-lg text-sm font-medium transition cursor-pointer"
+                title="Click to change to Not Sales">
+                &#10003; Sales
+            </button>
+            {% elif eff == 'not_sales' %}
+            <button onclick="reclassify('{{ event.id }}', 'sales')"
+                class="bg-gray-100 text-gray-500 hover:bg-green-100 hover:text-green-700 px-4 py-2 rounded-lg text-sm font-medium transition cursor-pointer"
+                title="Click to change to Sales">
+                Other
+            </button>
+            {% else %}
+            <span class="bg-yellow-100 text-yellow-700 px-4 py-2 rounded-lg text-sm font-medium">Unclassified</span>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<div class="mt-6 bg-white rounded-lg shadow-sm border p-4 text-center">
+    {% set sales_count = [] %}
+    {% for e in events %}
+        {% if (e.override or e.classification) == 'sales' %}
+            {% if sales_count.append(1) %}{% endif %}
+        {% endif %}
+    {% endfor %}
+    <span class="text-krs-600 font-bold text-2xl">{{ sales_count|length }}</span>
+    <span class="text-gray-500">sales appointments out of</span>
+    <span class="font-bold text-2xl text-gray-800">{{ events|length }}</span>
+    <span class="text-gray-500">total events</span>
+</div>
+
+<script>
+async function reclassify(eventId, newClass) {
+    await fetch('/api/override', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({event_id: eventId, classification: newClass})
+    });
+    location.reload();
+}
+</script>
+{% else %}
+<div class="text-center py-16 text-gray-400">
+    <p class="text-lg">No events for {{ agent_name }} this week.</p>
+</div>
+{% endif %}
+{% endblock %}
