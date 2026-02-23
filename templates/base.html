@@ -72,21 +72,21 @@
 
         async function syncCalendars() {
             const btn = document.getElementById('sync-btn');
-            btn.disabled = true; btn.textContent = '⏳ Syncing...';
+            btn.disabled = true; btn.textContent = '⏳ Triggering sync...';
             try {
-                const r = await fetch('/api/sync', { 
+                const r = await fetch('/api/trigger-sync', { 
                     method: 'POST', 
                     headers: {'Content-Type': 'application/json'}, 
                     body: JSON.stringify({week: WEEK}) 
                 });
                 const d = await r.json();
-                if (d.synced !== undefined) {
-                    showToast('Synced ' + d.synced + ' events for ' + WEEK);
-                    setTimeout(() => location.reload(), 1000);
+                if (d.status === 'triggered') {
+                    showToast('Sync triggered for ' + WEEK + '! Data will appear in ~30s.');
+                    setTimeout(() => location.reload(), 30000);
                 } else if (d.error) {
                     showToast('Sync error: ' + d.error);
                 } else {
-                    showToast('Sync triggered — Apps Script will push data automatically');
+                    showToast(JSON.stringify(d));
                 }
             } catch(e) { 
                 showToast('Sync failed: ' + e.message); 

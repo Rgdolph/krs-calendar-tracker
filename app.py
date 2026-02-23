@@ -151,6 +151,21 @@ def sync_redirect():
     
     return redirect(f"/?week={wk}&synced={count}")
 
+@app.route("/api/trigger-sync", methods=["POST"])
+def trigger_sync():
+    """UI-facing endpoint: triggers Apps Script to push data (no API key needed)."""
+    import requests as req
+    data = request.json or {}
+    wk = data.get("week", current_week_key())
+    apps_url = APP_CONFIG.get("apps_script_url", "")
+    if not apps_url:
+        return jsonify({"error": "No Apps Script URL configured"}), 500
+    try:
+        r = req.get(apps_url + "?action=sync&week=" + wk, timeout=90, allow_redirects=True)
+        return jsonify({"status": "triggered", "week": wk, "script_response": r.text[:200]})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/api/classify", methods=["POST"])
 def classify():
     wk = (request.json or {}).get("week", current_week_key())
