@@ -215,18 +215,24 @@ def status():
 
 @app.route("/api/trigger-sync", methods=["POST"])
 def trigger_sync():
-    """UI-facing endpoint: triggers Apps Script to push data (no API key needed)."""
-    import requests as req
+    """UI-facing: sync from Google Sheet (fallback) or report last push status."""
     data = request.json or {}
     wk = data.get("week", current_week_key())
-    apps_url = APP_CONFIG.get("apps_script_url", "")
-    if not apps_url:
-        return jsonify({"error": "No Apps Script URL configured"}), 500
+    
+    # Try syncing from Google Sheet (works without auth if sheet is published)
     try:
-        r = req.get(apps_url + "?action=sync&week=" + wk, timeout=90, allow_redirects=True)
-        return jsonify({"status": "triggered", "week": wk, "script_response": r.text[:200]})
+        events = calendar_source.fetch_events(wk)
+        if events:
+            db.upsert_events_bulk(events)
+            # Auto-classify new events
+            unclassified = db.get_unclassified_events(wk)
+            if unclassified:
+                classifier.classify_events_async(wk)
+            return jsonify({"status": "synced", "week": wk, "synced": len(events), "classifying": len(unclassified) if unclassified else 0})
+        else:
+            return jsonify({"status": "ok", "week": wk, "synced": 0, "message": "No events found. Auto-push runs every 15 min."})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"status": "ok", "week": wk, "synced": 0, "message": f"Sheet sync unavailable ({e}). Auto-push runs every 15 min."})
 
 @app.route("/api/classify", methods=["POST"])
 def classify():
