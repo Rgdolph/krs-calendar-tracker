@@ -75,7 +75,7 @@ def upsert_events_bulk(events):
             return
         except sqlite3.OperationalError as e:
             if "locked" in str(e) and attempt < 2:
-                time.sleep(1)
+                time.sleep(3 * (attempt + 1))
                 continue
             raise
 
