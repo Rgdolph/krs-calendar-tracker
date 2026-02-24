@@ -29,6 +29,29 @@ APP_CONFIG["openai_api_key"] = os.environ.get("OPENAI_API_KEY", APP_CONFIG.get("
 APP_CONFIG["apps_script_url"] = os.environ.get("APPS_SCRIPT_URL", APP_CONFIG.get("apps_script_url", ""))
 APP_CONFIG["sync_api_key"] = os.environ.get("SYNC_API_KEY", APP_CONFIG.get("sync_api_key", ""))
 APP_CONFIG["data_source"] = os.environ.get("DATA_SOURCE", APP_CONFIG.get("data_source", "script"))
+APP_CONFIG["webhook_secret"] = os.environ.get("WEBHOOK_SECRET", APP_CONFIG.get("webhook_secret", ""))
+
+# Default agents list (used when config.json not present, e.g. on Render)
+if not APP_CONFIG.get("agents"):
+    APP_CONFIG["agents"] = [
+        {"name": "Paul Vogt", "calendar_id": "pvogt@krs.insure"},
+        {"name": "Michael Kearns", "calendar_id": "mkearns@krs.insure"},
+        {"name": "Christopher Jones", "calendar_id": "cjones@krs.insure"},
+        {"name": "Desiree Garza", "calendar_id": "dgarza@krs.insure"},
+        {"name": "Robert Landato", "calendar_id": "rlandato@krs.insure"},
+        {"name": "Chad Heeren", "calendar_id": "cheeren@krs.insure"},
+        {"name": "Zachary Maa", "calendar_id": "zmaa@krs.insure"},
+        {"name": "Ryan Dolph", "calendar_id": "rdolph@krs.insure"},
+        {"name": "Brandon Dailey", "calendar_id": "bdailey@krs.insure"},
+        {"name": "Caleb Graybeal", "calendar_id": "cgraybeal@krs.insure"},
+        {"name": "Joy Daly", "calendar_id": "jdaly@krs.insure"},
+        {"name": "Jeorge Holmes", "calendar_id": "jholmes@krs.insure"},
+        {"name": "Stephanie Burling", "calendar_id": "sburling@krs.insure"},
+        {"name": "Kevin Pummill", "calendar_id": "kpummill@krs.insure"},
+        {"name": "Toño Macmillan", "calendar_id": "amacmillan@krs.insure"},
+        {"name": "Mike Seidler", "calendar_id": "mseidler@krs.insure"},
+        {"name": "Iris Fuchs", "calendar_id": "ifuchs@krs.insure"},
+    ]
 
 def current_week_key():
     today = date.today()
