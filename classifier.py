@@ -107,25 +107,39 @@ def classify_batch_openai(events):
         return []
 
 
+def _classify_thread(week_key):
+    """Background classification in a thread (no subprocess, no DB lock issues)."""
+    import time
+    try:
+        events = get_unclassified_events(week_key)
+        total = len(events)
+        _write_progress({"running": True, "done": 0, "total": total, "current": "starting..."})
+        
+        batch_size = 20
+        done = 0
+        for i in range(0, total, batch_size):
+            batch = events[i:i+batch_size]
+            batch_num = (i // batch_size) + 1
+            _write_progress({"running": True, "done": done, "total": total, "current": f"Batch {batch_num}..."})
+            classify_batch_openai(batch)
+            done += len(batch)
+            _write_progress({"running": True, "done": done, "total": total, "current": f"Batch {batch_num} done"})
+            time.sleep(1)
+        
+        _write_progress({"running": False, "done": done, "total": total, "current": "complete"})
+    except Exception as e:
+        _write_progress({"running": False, "done": 0, "total": 0, "current": f"error: {e}"})
+
 def classify_events_async(week_key):
-    """Start background classification subprocess."""
+    """Start background classification in a thread."""
+    import threading
     progress = get_progress()
     if progress.get("running"):
         return False
 
     _write_progress({"running": True, "done": 0, "total": 0, "current": "starting..."})
-
-    import sys
-    script = os.path.join(os.path.dirname(__file__), "classify_worker.py")
-    log_file = os.path.join(os.path.dirname(__file__), "worker.log")
-    with open(log_file, 'w') as log:
-        subprocess.Popen(
-            [sys.executable, script, week_key],
-            cwd=os.path.dirname(__file__),
-            stdout=log,
-            stderr=log,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
-        )
+    t = threading.Thread(target=_classify_thread, args=(week_key,), daemon=True)
+    t.start()
     return True
 
 
