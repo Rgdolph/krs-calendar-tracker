@@ -63,12 +63,33 @@
 
 <script>
 async function reclassify(eventId, newClass) {
+    const btn = event.target;
+    btn.disabled = true;
+    btn.textContent = '...';
     await fetch('/api/override', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({event_id: eventId, classification: newClass})
     });
-    location.reload();
+    // Update in-place instead of reloading
+    const card = btn.closest('.bg-white');
+    if (!card) { location.reload(); return; }
+    if (newClass === 'sales') {
+        card.classList.remove('border-l-gray-300', 'border-l-yellow-400');
+        card.classList.add('border-l-green-500');
+        btn.className = 'bg-green-100 text-green-700 hover:bg-red-100 hover:text-red-700 px-4 py-2 rounded-lg text-sm font-medium transition cursor-pointer';
+        btn.innerHTML = '&#10003; Sales';
+        btn.title = 'Click to change to Not Sales';
+        btn.onclick = () => reclassify(eventId, 'not_sales');
+    } else {
+        card.classList.remove('border-l-green-500', 'border-l-yellow-400');
+        card.classList.add('border-l-gray-300');
+        btn.className = 'bg-gray-100 text-gray-500 hover:bg-green-100 hover:text-green-700 px-4 py-2 rounded-lg text-sm font-medium transition cursor-pointer';
+        btn.textContent = 'Other';
+        btn.title = 'Click to change to Sales';
+        btn.onclick = () => reclassify(eventId, 'sales');
+    }
+    btn.disabled = false;
 }
 </script>
 {% else %}

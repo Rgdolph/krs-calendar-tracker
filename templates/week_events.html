@@ -134,7 +134,25 @@ async function reclassify(eventId, newClass) {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({event_id: eventId, classification: newClass})
     });
-    location.reload();
+    // Update row in-place instead of reloading (preserves sort)
+    const row = document.getElementById('row-' + eventId);
+    if (!row) { location.reload(); return; }
+    const typeCell = row.cells[4];
+    const reasonCell = row.cells[3];
+    typeCell.setAttribute('data-sort', newClass);
+    if (newClass === 'sales') {
+        typeCell.innerHTML = `<button onclick="reclassify('${eventId}', 'not_sales')"
+            class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-medium hover:bg-red-100 hover:text-red-700 transition"
+            title="Click to change to Not Sales">&#10003; Sales</button>`;
+    } else {
+        typeCell.innerHTML = `<button onclick="reclassify('${eventId}', 'sales')"
+            class="bg-gray-100 text-gray-500 px-3 py-1 rounded-full text-xs font-medium hover:bg-green-100 hover:text-green-700 transition"
+            title="Click to change to Sales">Other</button>`;
+    }
+    // Add override indicator
+    if (!reasonCell.innerHTML.includes('(overridden)')) {
+        reasonCell.innerHTML += ' <span class="text-orange-500 font-medium">(overridden)</span>';
+    }
 }
 </script>
 {% endblock %}
