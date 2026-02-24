@@ -73,13 +73,60 @@
         async function syncNow() {
             const btn = document.getElementById('sync-btn');
             btn.disabled = true; btn.textContent = '⏳ Syncing...';
-            showToast('Pushing calendar data for ' + WEEK + '...');
             
-            // Navigate to Apps Script with action=push — it reads calendars server-side,
-            // POSTs to our webhook, then redirects back here
-            const redirectUrl = window.location.origin + '/week/' + WEEK;
-            const pushUrl = APPS_SCRIPT_URL + '?action=push&week=' + WEEK + '&redirect=' + encodeURIComponent(redirectUrl);
-            window.location.href = pushUrl;
+            // Get current count
+            let before = 0;
+            try {
+                const r = await fetch('/api/status?week=' + WEEK);
+                const d = await r.json();
+                before = d.total || 0;
+                if (d.unclassified > 0) {
+                    showToast('Classifying ' + d.unclassified + ' events...');
+                    classifyAll();
+                    return;
+                }
+            } catch(e) {}
+            
+            // Trigger Apps Script push via hidden iframe (fires and forgets)
+            const pushUrl = APPS_SCRIPT_URL + '?action=push&week=' + WEEK;
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            iframe.src = pushUrl;
+            document.body.appendChild(iframe);
+            
+            showToast('⏳ Syncing ' + WEEK + '... Calendar push triggered. Data arrives in ~1-2 min.');
+            
+            // Poll for changes
+            let checks = 0;
+            const poll = setInterval(async () => {
+                checks++;
+                try {
+                    const r = await fetch('/api/status?week=' + WEEK);
+                    const d = await r.json();
+                    if ((d.total || 0) > before) {
+                        clearInterval(poll);
+                        iframe.remove();
+                        showToast('✅ ' + d.total + ' events synced!');
+                        btn.disabled = false; btn.textContent = '🔄 Sync Now';
+                        if (d.unclassified > 0) {
+                            classifyAll();
+                        } else {
+                            setTimeout(() => location.reload(), 1000);
+                        }
+                        return;
+                    }
+                    if (checks >= 30) {
+                        clearInterval(poll);
+                        iframe.remove();
+                        if (d.total > 0) {
+                            showToast('✅ ' + d.total + ' events (no new changes).');
+                        } else {
+                            showToast('No events yet. Push may still be running—refresh in a minute.');
+                        }
+                        btn.disabled = false; btn.textContent = '🔄 Sync Now';
+                    }
+                } catch(e) {}
+            }, 5000);
         }
 
         async function classifyAll() {
