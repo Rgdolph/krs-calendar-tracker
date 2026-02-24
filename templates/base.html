@@ -72,76 +72,28 @@
 
         async function syncNow() {
             const btn = document.getElementById('sync-btn');
-            btn.disabled = true; btn.textContent = '⏳ Syncing...';
-            showToast('Opening Apps Script to fetch calendars...');
+            btn.disabled = true; btn.textContent = '⏳ Checking...';
             
-            // Open Apps Script in a popup — the user's browser is authenticated as krs.insure
-            // The deployed web app returns JSON with all events
-            const bounds = getWeekBounds(WEEK);
-            const syncUrl = APPS_SCRIPT_URL + '?start=' + bounds.start + 'T00:00:00Z&end=' + bounds.end + 'T23:59:59Z';
-            const popup = window.open(syncUrl, 'krs_sync', 'width=600,height=400,scrollbars=yes');
-            
-            // Poll the popup for JSON content
-            let attempts = 0;
-            const checkPopup = setInterval(async () => {
-                attempts++;
-                try {
-                    // Try to read popup content (same-origin won't work, but after redirect it lands on googleusercontent.com)
-                    // Instead, just check if popup loaded by trying to read its document
-                    if (popup.closed) {
-                        clearInterval(checkPopup);
-                        btn.disabled = false; btn.textContent = '🔄 Sync Now';
-                        showToast('Popup closed. Checking for new data...');
-                        setTimeout(() => location.reload(), 2000);
-                        return;
-                    }
-                    
-                    let bodyText = '';
-                    try { bodyText = popup.document.body?.innerText || ''; } catch(e) { /* cross-origin */ }
-                    
-                    if (bodyText && bodyText.includes('"events"')) {
-                        clearInterval(checkPopup);
-                        const data = JSON.parse(bodyText);
-                        const events = data.events || [];
-                        popup.close();
-                        
-                        if (events.length === 0) {
-                            showToast('No events found for ' + WEEK);
-                            btn.disabled = false; btn.textContent = '🔄 Sync Now';
-                            return;
-                        }
-                        
-                        showToast('Got ' + events.length + ' events, uploading...');
-                        
-                        // POST to our sync endpoint
-                        const r = await fetch('/api/sync', {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({ week: WEEK, events: events })
-                        });
-                        const d = await r.json();
-                        showToast('✅ Synced ' + (d.synced || events.length) + ' events!');
-                        btn.disabled = false; btn.textContent = '🔄 Sync Now';
-                        
-                        // Auto-classify if needed
-                        const statusR = await fetch('/api/status?week=' + WEEK);
-                        const statusD = await statusR.json();
-                        if (statusD.unclassified > 0) {
-                            classifyAll();
-                        } else {
-                            setTimeout(() => location.reload(), 1500);
-                        }
-                        return;
-                    }
-                } catch(e) { /* cross-origin or not ready */ }
+            try {
+                const r = await fetch('/api/status?week=' + WEEK);
+                const d = await r.json();
                 
-                if (attempts > 60) {
-                    clearInterval(checkPopup);
-                    if (popup && !popup.closed) popup.close();
+                if (d.total > 0) {
+                    showToast('✅ ' + d.total + ' events loaded (' + d.sales + ' sales). Auto-sync runs every 15 min.');
                     btn.disabled = false; btn.textContent = '🔄 Sync Now';
-                    showToast('Sync timed out. The auto-push runs every 15 min.');
+                    if (d.unclassified > 0) {
+                        classifyAll();
+                    } else {
+                        setTimeout(() => location.reload(), 1500);
+                    }
+                } else {
+                    showToast('No events for ' + WEEK + ' yet. Calendars auto-push every 15 min (covers prev week through 2 weeks out). Refresh shortly.');
+                    btn.disabled = false; btn.textContent = '🔄 Sync Now';
                 }
-            }, 2000);
+            } catch(e) {
+                showToast('⚠️ Error checking status: ' + e.message);
+                btn.disabled = false; btn.textContent = '🔄 Sync Now';
+            }
         }
 
         async function classifyAll() {
