@@ -151,6 +151,16 @@ def sync_redirect():
     
     return redirect(f"/?week={wk}&synced={count}")
 
+@app.route("/api/status", methods=["GET"])
+def status():
+    wk = request.args.get("week", current_week_key())
+    conn = db.get_db()
+    total = conn.execute("SELECT COUNT(*) FROM events WHERE week_key=?", (wk,)).fetchone()[0]
+    classified = conn.execute("SELECT COUNT(*) FROM events WHERE week_key=? AND classification IS NOT NULL AND classification != ''", (wk,)).fetchone()[0]
+    sales = conn.execute("SELECT COUNT(*) FROM events WHERE week_key=? AND classification='sales'", (wk,)).fetchone()[0]
+    conn.close()
+    return jsonify({"week": wk, "total": total, "classified": classified, "sales": sales, "unclassified": total - classified})
+
 @app.route("/api/trigger-sync", methods=["POST"])
 def trigger_sync():
     """UI-facing endpoint: triggers Apps Script to push data (no API key needed)."""

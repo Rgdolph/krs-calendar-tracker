@@ -18,7 +18,7 @@
         <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
             <a href="/" class="text-xl font-bold text-krs-700">&#128273; KRS Calendar Tracker</a>
             <div class="flex gap-2">
-                <button onclick="syncCalendars()" id="sync-btn" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition">&#128197; Sync Calendars</button>
+                <button onclick="syncCalendars()" id="sync-btn" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition">&#128197; Sync Status</button>
                 <button onclick="classifyAll()" id="classify-btn" class="bg-krs-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-krs-700 transition">&#129302; Classify All</button>
             </div>
         </div>
@@ -72,26 +72,16 @@
 
         async function syncCalendars() {
             const btn = document.getElementById('sync-btn');
-            btn.disabled = true; btn.textContent = '⏳ Triggering sync...';
+            btn.disabled = true; btn.textContent = '⏳ Checking...';
             try {
-                const r = await fetch('/api/trigger-sync', { 
-                    method: 'POST', 
-                    headers: {'Content-Type': 'application/json'}, 
-                    body: JSON.stringify({week: WEEK}) 
-                });
+                const r = await fetch('/api/status?week=' + WEEK);
                 const d = await r.json();
-                if (d.status === 'triggered') {
-                    showToast('Sync triggered for ' + WEEK + '! Data will appear in ~30s.');
-                    setTimeout(() => location.reload(), 30000);
-                } else if (d.error) {
-                    showToast('Sync error: ' + d.error);
-                } else {
-                    showToast(JSON.stringify(d));
-                }
-            } catch(e) { 
-                showToast('Sync failed: ' + e.message); 
+                const msg = 'Week ' + WEEK + ': ' + (d.total || 0) + ' events, ' + (d.classified || 0) + ' classified. Auto-sync runs every 4 hours.';
+                showToast(msg);
+            } catch(e) {
+                showToast('Auto-sync runs every 4 hours via Apps Script. Check back soon!');
             }
-            btn.disabled = false; btn.textContent = '📅 Sync Calendars';
+            btn.disabled = false; btn.textContent = '📅 Sync Status';
         }
 
         async function classifyAll() {
