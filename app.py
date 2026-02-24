@@ -342,6 +342,9 @@ def webhook_receive():
     
     events = []
     for ev in raw_events:
+        # Skip all-day events (tasks, OOO markers, etc.)
+        if ev.get("allDay"):
+            continue
         title = ev.get("title", "(No Title)")
         agent = ev.get("agent", "Unknown")
         # Resolve calendar_id to name
