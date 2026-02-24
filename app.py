@@ -276,6 +276,69 @@ def sync_classified():
     conn.close()
     return jsonify({"synced": len(events), "classified": updated, "week": wk})
 
+@app.route("/api/webhook", methods=["POST"])
+def webhook_receive():
+    """Receive pushed events from Apps Script (Option A: push architecture).
+    Apps Script calls this on a timer. Auto-classifies after ingestion."""
+    import hashlib
+    data = request.get_json(force=True, silent=True) or {}
+    
+    # Auth: check webhook secret
+    secret = APP_CONFIG.get("webhook_secret", "")
+    if secret:
+        provided = data.get("secret", "") or request.headers.get("X-Webhook-Secret", "")
+        if provided != secret:
+            return jsonify({"error": "unauthorized"}), 401
+    
+    raw_events = data.get("events", [])
+    wk = data.get("week", current_week_key())
+    
+    if not raw_events:
+        return jsonify({"error": "no events", "week": wk}), 400
+    
+    # Map calendar IDs to agent names
+    agents_map = {a["calendar_id"]: a["name"] for a in APP_CONFIG.get("agents", [])}
+    
+    events = []
+    for ev in raw_events:
+        title = ev.get("title", "(No Title)")
+        agent = ev.get("agent", "Unknown")
+        # Resolve calendar_id to name
+        if "@" in agent:
+            agent = agents_map.get(agent, agent)
+        start = ev.get("start", "")
+        event_id = hashlib.md5(f"{agent}_{start}_{title}".encode()).hexdigest()
+        events.append({
+            "id": event_id,
+            "agent_name": agent,
+            "title": title,
+            "start_time": start,
+            "end_time": ev.get("end", ""),
+            "description": ev.get("description", ""),
+            "location": ev.get("location", ""),
+            "week_key": wk,
+        })
+    
+    db.upsert_events_bulk(events)
+    
+    # Auto-classify new events
+    unclassified = db.get_unclassified_events(wk)
+    auto_classified = 0
+    if unclassified:
+        try:
+            classifier.classify_events_async(wk)
+            auto_classified = len(unclassified)
+        except Exception as e:
+            print(f"[webhook] Auto-classify error: {e}", flush=True)
+    
+    return jsonify({
+        "ok": True,
+        "synced": len(events),
+        "week": wk,
+        "auto_classifying": auto_classified
+    })
+
+
 @app.route("/api/override", methods=["POST"])
 def override():
     data = request.json
