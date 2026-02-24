@@ -88,14 +88,14 @@ def check_api_key():
     key = APP_CONFIG.get("sync_api_key", "")
     if not key:
         return True  # No key configured, allow (local dev)
-    provided = request.headers.get("X-API-Key", "") or (request.json or {}).get("api_key", "") or request.args.get("api_key", "")
+    provided = request.headers.get("X-API-Key", "") or (request.get_json(force=True, silent=True) or {}).get("api_key", "") or request.args.get("api_key", "")
     return provided == key
 
 @app.route("/api/sync", methods=["POST"])
 def sync():
     if not check_api_key():
         return jsonify({"error": "unauthorized"}), 401
-    data = request.json or {}
+    data = request.get_json(force=True, silent=True) or {}
     wk = data.get("week", current_week_key())
     
     # If browser sent events directly (client-side fetch from Apps Script)
