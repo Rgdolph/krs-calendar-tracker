@@ -41,7 +41,14 @@
                 Other
             </button>
             {% else %}
-            <span class="bg-yellow-100 text-yellow-700 px-4 py-2 rounded-lg text-sm font-medium">Unclassified</span>
+            <div class="flex gap-1">
+                <button onclick="reclassify('{{ event.id }}', 'sales')"
+                    class="bg-yellow-100 text-yellow-700 hover:bg-green-100 hover:text-green-700 px-3 py-2 rounded-l-lg text-sm font-medium transition cursor-pointer"
+                    title="Mark as Sales">Sales?</button>
+                <button onclick="reclassify('{{ event.id }}', 'not_sales')"
+                    class="bg-yellow-100 text-yellow-700 hover:bg-gray-200 hover:text-gray-600 px-3 py-2 rounded-r-lg text-sm font-medium transition cursor-pointer"
+                    title="Mark as Not Sales">Other?</button>
+            </div>
             {% endif %}
         </div>
     </div>

@@ -75,12 +75,21 @@
                             title="Click to change to Not Sales">
                         &#10003; Sales
                     </button>
-                    {% else %}
+                    {% elif effective == 'not_sales' %}
                     <button onclick="reclassify('{{ e.id }}', 'sales')"
                             class="bg-gray-100 text-gray-500 px-3 py-1 rounded-full text-xs font-medium hover:bg-green-100 hover:text-green-700 transition"
                             title="Click to change to Sales">
                         Other
                     </button>
+                    {% else %}
+                    <span class="inline-flex gap-0.5">
+                        <button onclick="reclassify('{{ e.id }}', 'sales')"
+                                class="bg-yellow-100 text-yellow-700 px-2 py-1 rounded-l-full text-xs font-medium hover:bg-green-100 hover:text-green-700 transition"
+                                title="Mark as Sales">Sales?</button>
+                        <button onclick="reclassify('{{ e.id }}', 'not_sales')"
+                                class="bg-yellow-100 text-yellow-700 px-2 py-1 rounded-r-full text-xs font-medium hover:bg-gray-200 hover:text-gray-600 transition"
+                                title="Mark as Other">Other?</button>
+                    </span>
                     {% endif %}
                 </td>
             </tr>

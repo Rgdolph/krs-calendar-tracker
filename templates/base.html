@@ -19,7 +19,8 @@
             <a href="/" class="text-xl font-bold text-krs-700">&#128273; KRS Calendar Tracker</a>
             <div class="flex gap-2">
                 <button onclick="syncNow()" id="sync-btn" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition">🔄 Sync Now</button>
-                <button onclick="classifyAll()" id="classify-btn" class="bg-krs-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-krs-700 transition">🤖 Classify All</button>
+                <button onclick="classifyNew()" id="classify-btn" class="bg-krs-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-krs-700 transition">🤖 Classify New</button>
+                <button onclick="reclassifyAll()" id="reclassify-btn" class="bg-gray-500 text-white px-3 py-2 rounded-lg text-sm hover:bg-gray-600 transition">🔄 Reclassify All</button>
             </div>
         </div>
     </nav>
@@ -129,7 +130,7 @@
             }, 5000);
         }
 
-        async function classifyAll() {
+        async function classifyNew() {
             const btn = document.getElementById('classify-btn');
             btn.disabled = true; btn.textContent = 'Starting...';
             try {
@@ -137,15 +138,30 @@
                 const d = await r.json();
                 if (d.status === 'done') {
                     showToast('All events already classified!');
-                    btn.disabled = false; btn.textContent = '\u{1F916} Classify All';
+                    btn.disabled = false; btn.textContent = '🤖 Classify New';
                     return;
                 }
-                // Show progress bar and start polling
                 document.getElementById('progress-bar').classList.remove('hidden');
                 document.getElementById('progress-count').textContent = '0 / ' + (d.total || '?');
                 startPolling();
-            } catch(e) { showToast('Failed: ' + e.message); }
+            } catch(e) { showToast('Failed: ' + e.message); btn.disabled = false; btn.textContent = '🤖 Classify New'; }
         }
+
+        async function reclassifyAll() {
+            if (!confirm('Reclassify ALL events for ' + WEEK + '? This will re-run AI on everything.')) return;
+            const btn = document.getElementById('reclassify-btn');
+            btn.disabled = true; btn.textContent = 'Starting...';
+            try {
+                const r = await fetch('/api/reclassify', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({week:WEEK}) });
+                const d = await r.json();
+                document.getElementById('progress-bar').classList.remove('hidden');
+                document.getElementById('progress-count').textContent = '0 / ' + (d.total || '?');
+                startPolling();
+            } catch(e) { showToast('Failed: ' + e.message); btn.disabled = false; btn.textContent = '🔄 Reclassify All'; }
+        }
+        
+        // Keep classifyAll as alias for backward compat (called by syncNow)
+        async function classifyAll() { return classifyNew(); }
 
         function startPolling() {
             pollTimer = setInterval(async () => {

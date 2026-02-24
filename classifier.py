@@ -107,11 +107,15 @@ def classify_batch_openai(events):
         return []
 
 
-def _classify_thread(week_key):
+def _classify_thread(week_key, reclassify_all=False):
     """Background classification in a thread (no subprocess, no DB lock issues)."""
     import time
     try:
-        events = get_unclassified_events(week_key)
+        if reclassify_all:
+            from database import get_events_for_week
+            events = get_events_for_week(week_key)
+        else:
+            events = get_unclassified_events(week_key)
         total = len(events)
         _write_progress({"running": True, "done": 0, "total": total, "current": "starting..."})
         
@@ -130,7 +134,7 @@ def _classify_thread(week_key):
     except Exception as e:
         _write_progress({"running": False, "done": 0, "total": 0, "current": f"error: {e}"})
 
-def classify_events_async(week_key):
+def classify_events_async(week_key, reclassify_all=False):
     """Start background classification in a thread."""
     import threading
     progress = get_progress()
@@ -138,7 +142,7 @@ def classify_events_async(week_key):
         return False
 
     _write_progress({"running": True, "done": 0, "total": 0, "current": "starting..."})
-    t = threading.Thread(target=_classify_thread, args=(week_key,), daemon=True)
+    t = threading.Thread(target=_classify_thread, args=(week_key, reclassify_all), daemon=True)
     t.start()
     return True
 

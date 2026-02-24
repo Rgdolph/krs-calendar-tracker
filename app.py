@@ -248,6 +248,18 @@ def classify():
     else:
         return jsonify({"status": "already_running", "progress": classifier.get_progress()})
 
+@app.route("/api/reclassify", methods=["POST"])
+def reclassify_all():
+    wk = (request.json or {}).get("week", current_week_key())
+    events = db.get_events_for_week(wk)
+    if not events:
+        return jsonify({"status": "done", "classified": 0})
+    started = classifier.classify_events_async(wk, reclassify_all=True)
+    if started:
+        return jsonify({"status": "started", "total": len(events)})
+    else:
+        return jsonify({"status": "already_running", "progress": classifier.get_progress()})
+
 @app.route("/api/classify/progress", methods=["GET"])
 def classify_progress():
     progress = classifier.get_progress()
