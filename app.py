@@ -210,6 +210,55 @@ def classify_progress():
     progress["remaining"] = remaining
     return jsonify(progress)
 
+@app.route("/api/sync-classified", methods=["POST"])
+def sync_classified():
+    """Accept pre-classified events (classified locally before upload)."""
+    if not check_api_key():
+        return jsonify({"error": "unauthorized"}), 401
+    data = request.get_json(force=True, silent=True) or {}
+    wk = data.get("week", current_week_key())
+    raw_events = data.get("events", [])
+    if not raw_events:
+        return jsonify({"error": "no events"}), 400
+    
+    import hashlib
+    events = []
+    for ev in raw_events:
+        title = ev.get("title", "(No Title)")
+        agent = ev.get("agent", "Unknown")
+        start = ev.get("start", "")
+        event_id = hashlib.md5(f"{agent}_{start}_{title}".encode()).hexdigest()
+        events.append({
+            "id": event_id,
+            "agent_name": agent,
+            "title": title,
+            "start_time": start,
+            "end_time": ev.get("end", ""),
+            "description": ev.get("description", ""),
+            "location": ev.get("location", ""),
+            "week_key": wk,
+            "is_all_day": ev.get("allDay", False),
+            "status": ev.get("status", "confirmed"),
+            "classification": ev.get("classification", ""),
+            "confidence": ev.get("confidence", 0),
+            "ai_reasoning": ev.get("reasoning", "")
+        })
+    db.upsert_events_bulk(events)
+    
+    # Now update classifications directly
+    conn = db.get_db()
+    cur = conn.cursor()
+    ph = "%s" if db._is_pg() else "?"
+    updated = 0
+    for ev in events:
+        if ev["classification"]:
+            cur.execute(f"UPDATE events SET classification={ph}, confidence={ph}, ai_reasoning={ph} WHERE id={ph} AND week_key={ph}",
+                (ev["classification"], ev["confidence"], ev["ai_reasoning"], ev["id"], wk))
+            updated += 1
+    conn.commit()
+    conn.close()
+    return jsonify({"synced": len(events), "classified": updated, "week": wk})
+
 @app.route("/api/override", methods=["POST"])
 def override():
     data = request.json
