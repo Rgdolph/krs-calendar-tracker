@@ -11,8 +11,14 @@ from datetime import datetime, date, timedelta
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
 
 def load_config():
-    with open(CONFIG_PATH) as f:
-        return json.load(f)
+    if os.path.exists(CONFIG_PATH):
+        with open(CONFIG_PATH) as f:
+            return json.load(f)
+    # Fallback: use env vars
+    return {
+        "google_sheet_id": os.environ.get("GOOGLE_SHEET_ID", "1uM22f664QVtHneL53nsmv5mHaJRmMWrLsQFEtvcMbxw"),
+        "data_source": os.environ.get("DATA_SOURCE", "sheet"),
+    }
 
 def get_week_bounds(week_key):
     """week_key = 'YYYY-Www' e.g. '2026-W09'. Returns (monday, sunday) as date objects."""

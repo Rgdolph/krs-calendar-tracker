@@ -73,64 +73,46 @@
         async function syncNow() {
             const btn = document.getElementById('sync-btn');
             btn.disabled = true; btn.textContent = '⏳ Syncing...';
-            showToast('Triggering calendar sync...');
+            showToast('Fetching calendars via Apps Script...');
             
             try {
-                const r = await fetch('/api/trigger-sync', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({week: WEEK})
-                });
-                const d = await r.json();
+                // Call Apps Script directly from user's browser (authenticated as krs.insure)
+                const bounds = getWeekBounds(WEEK);
+                const url = APPS_SCRIPT_URL + '?start=' + bounds.start + 'T00:00:00Z&end=' + bounds.end + 'T23:59:59Z';
                 
-                if (d.error) {
-                    showToast('⚠️ ' + d.error);
+                const r = await fetch(url, { redirect: 'follow' });
+                const data = await r.json();
+                const events = data.events || [];
+                
+                if (events.length === 0) {
+                    showToast('No events found for ' + WEEK);
                     btn.disabled = false; btn.textContent = '🔄 Sync Now';
                     return;
                 }
                 
-                showToast('Sync triggered! Waiting for data...');
+                showToast('Got ' + events.length + ' events, uploading...');
                 
-                // Poll status for up to 90 seconds waiting for changes
-                let beforeTotal = 0;
-                try {
-                    const sr = await fetch('/api/status?week=' + WEEK);
-                    const sd = await sr.json();
-                    beforeTotal = sd.total || 0;
-                } catch(e) {}
+                // POST events to our webhook
+                const syncR = await fetch('/api/sync', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ week: WEEK, events: events })
+                });
+                const syncD = await syncR.json();
                 
-                let attempts = 0;
-                const checkSync = setInterval(async () => {
-                    attempts++;
-                    try {
-                        const sr = await fetch('/api/status?week=' + WEEK);
-                        const sd = await sr.json();
-                        const newEvents = (sd.total || 0) - beforeTotal;
-                        
-                        if (newEvents > 0 || attempts > 30) {
-                            clearInterval(checkSync);
-                            if (newEvents > 0) {
-                                showToast('✅ Synced! ' + newEvents + ' new events.');
-                            } else {
-                                showToast('✅ Sync complete. ' + sd.total + ' events.');
-                            }
-                            btn.disabled = false; btn.textContent = '🔄 Sync Now';
-                            if (sd.unclassified > 0) {
-                                classifyAll();
-                            } else {
-                                setTimeout(() => location.reload(), 1500);
-                            }
-                        }
-                    } catch(e) {}
-                }, 3000);
+                showToast('✅ Synced ' + (syncD.synced || events.length) + ' events!');
+                btn.disabled = false; btn.textContent = '🔄 Sync Now';
                 
-                setTimeout(() => {
-                    clearInterval(checkSync);
-                    btn.disabled = false; btn.textContent = '🔄 Sync Now';
-                    location.reload();
-                }, 90000);
+                // Auto-classify then reload
+                const statusR = await fetch('/api/status?week=' + WEEK);
+                const statusD = await statusR.json();
+                if (statusD.unclassified > 0) {
+                    classifyAll();
+                } else {
+                    setTimeout(() => location.reload(), 1500);
+                }
             } catch(e) {
-                showToast('Failed: ' + e.message);
+                showToast('⚠️ Sync failed: ' + e.message);
                 btn.disabled = false; btn.textContent = '🔄 Sync Now';
             }
         }
