@@ -44,9 +44,13 @@ def init_db():
     conn = get_db()
     cur = conn.cursor()
     if _is_pg():
+        # Drop and recreate to fix schema (dedup index is the real key)
+        cur.execute("DROP TABLE IF EXISTS events CASCADE")
+        cur.execute("DROP TABLE IF EXISTS overrides CASCADE")
+        conn.commit()
         cur.execute("""
             CREATE TABLE IF NOT EXISTS events (
-                id TEXT PRIMARY KEY,
+                id TEXT,
                 agent_name TEXT NOT NULL,
                 title TEXT NOT NULL,
                 start_time TEXT NOT NULL,
