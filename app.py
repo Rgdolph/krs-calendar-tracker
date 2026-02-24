@@ -121,7 +121,24 @@ def sync():
                 "status": ev.get("status", "confirmed")
             })
         db.upsert_events_bulk(events)
-        return jsonify({"synced": len(events), "week": wk})
+        
+        # If events came with pre-classifications, apply them
+        classified = 0
+        has_classifications = any(ev.get("classification") for ev in raw_events)
+        if has_classifications:
+            conn = db.get_db()
+            cur = conn.cursor()
+            ph = "%s" if db._is_pg() else "?"
+            for ev_raw, ev_db in zip(raw_events, events):
+                cls = ev_raw.get("classification", "")
+                if cls:
+                    cur.execute(f"UPDATE events SET classification={ph}, confidence={ph}, ai_reasoning={ph} WHERE id={ph} AND week_key={ph}",
+                        (cls, ev_raw.get("confidence", 0.8), ev_raw.get("reasoning", ""), ev_db["id"], wk))
+                    classified += 1
+            conn.commit()
+            conn.close()
+        
+        return jsonify({"synced": len(events), "classified": classified, "week": wk})
     
     # Fallback: try server-side fetch
     events = calendar_source.fetch_events(wk)
