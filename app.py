@@ -155,9 +155,14 @@ def sync_redirect():
 def status():
     wk = request.args.get("week", current_week_key())
     conn = db.get_db()
-    total = conn.execute("SELECT COUNT(*) FROM events WHERE week_key=?", (wk,)).fetchone()[0]
-    classified = conn.execute("SELECT COUNT(*) FROM events WHERE week_key=? AND classification IS NOT NULL AND classification != ''", (wk,)).fetchone()[0]
-    sales = conn.execute("SELECT COUNT(*) FROM events WHERE week_key=? AND classification='sales'", (wk,)).fetchone()[0]
+    cur = conn.cursor()
+    ph = "%s" if db._is_pg() else "?"
+    cur.execute(f"SELECT COUNT(*) FROM events WHERE week_key={ph}", (wk,))
+    total = cur.fetchone()[0]
+    cur.execute(f"SELECT COUNT(*) FROM events WHERE week_key={ph} AND classification IS NOT NULL AND classification != ''", (wk,))
+    classified = cur.fetchone()[0]
+    cur.execute(f"SELECT COUNT(*) FROM events WHERE week_key={ph} AND classification='sales'", (wk,))
+    sales = cur.fetchone()[0]
     conn.close()
     return jsonify({"week": wk, "total": total, "classified": classified, "sales": sales, "unclassified": total - classified})
 
