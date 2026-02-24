@@ -72,28 +72,14 @@
 
         async function syncNow() {
             const btn = document.getElementById('sync-btn');
-            btn.disabled = true; btn.textContent = '⏳ Checking...';
+            btn.disabled = true; btn.textContent = '⏳ Syncing...';
+            showToast('Pushing calendar data for ' + WEEK + '...');
             
-            try {
-                const r = await fetch('/api/status?week=' + WEEK);
-                const d = await r.json();
-                
-                if (d.total > 0) {
-                    showToast('✅ ' + d.total + ' events loaded (' + d.sales + ' sales). Auto-sync runs every 15 min.');
-                    btn.disabled = false; btn.textContent = '🔄 Sync Now';
-                    if (d.unclassified > 0) {
-                        classifyAll();
-                    } else {
-                        setTimeout(() => location.reload(), 1500);
-                    }
-                } else {
-                    showToast('No events for ' + WEEK + ' yet. Calendars auto-push every 15 min (covers prev week through 2 weeks out). Refresh shortly.');
-                    btn.disabled = false; btn.textContent = '🔄 Sync Now';
-                }
-            } catch(e) {
-                showToast('⚠️ Error checking status: ' + e.message);
-                btn.disabled = false; btn.textContent = '🔄 Sync Now';
-            }
+            // Navigate to Apps Script with action=push — it reads calendars server-side,
+            // POSTs to our webhook, then redirects back here
+            const redirectUrl = window.location.origin + '/week/' + WEEK;
+            const pushUrl = APPS_SCRIPT_URL + '?action=push&week=' + WEEK + '&redirect=' + encodeURIComponent(redirectUrl);
+            window.location.href = pushUrl;
         }
 
         async function classifyAll() {
