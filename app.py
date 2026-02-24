@@ -7,6 +7,9 @@ import calendar_source
 
 app = Flask(__name__)
 
+from flask_cors import CORS
+CORS(app, resources={r"/api/*": {"origins": "*"}})
+
 import json
 
 # Load config: env vars override config.json
