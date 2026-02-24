@@ -18,8 +18,8 @@
         <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
             <a href="/" class="text-xl font-bold text-krs-700">&#128273; KRS Calendar Tracker</a>
             <div class="flex gap-2">
-                <button onclick="syncCalendars()" id="sync-btn" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition">&#128197; Sync Status</button>
-                <button onclick="classifyAll()" id="classify-btn" class="bg-krs-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-krs-700 transition">&#129302; Classify All</button>
+                <button onclick="syncNow()" id="sync-btn" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition">🔄 Sync Now</button>
+                <button onclick="classifyAll()" id="classify-btn" class="bg-krs-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-krs-700 transition">🤖 Classify All</button>
             </div>
         </div>
     </nav>
@@ -70,18 +70,65 @@
             return { start: fmt(monday), end: fmt(sunday) };
         }
 
-        async function syncCalendars() {
+        async function syncNow() {
             const btn = document.getElementById('sync-btn');
-            btn.disabled = true; btn.textContent = '⏳ Checking...';
+            btn.disabled = true; btn.textContent = '⏳ Syncing...';
+            
+            // Get before count
+            let beforeTotal = 0;
             try {
                 const r = await fetch('/api/status?week=' + WEEK);
                 const d = await r.json();
-                const msg = 'Week ' + WEEK + ': ' + (d.total || 0) + ' events, ' + (d.classified || 0) + ' classified. Auto-sync runs every 4 hours.';
-                showToast(msg);
-            } catch(e) {
-                showToast('Auto-sync runs every 4 hours via Apps Script. Check back soon!');
-            }
-            btn.disabled = false; btn.textContent = '📅 Sync Status';
+                beforeTotal = d.total || 0;
+            } catch(e) {}
+            
+            // Open Apps Script in popup — user's browser is authenticated as krs.insure
+            const bounds = getWeekBounds(WEEK);
+            const syncUrl = APPS_SCRIPT_URL + '?action=sync&start=' + bounds.start + '&end=' + bounds.end;
+            const popup = window.open(syncUrl, 'sync', 'width=500,height=400,scrollbars=yes');
+            
+            showToast('Syncing calendars... this takes about 30 seconds.');
+            
+            // Poll for new events
+            let attempts = 0;
+            const checkSync = setInterval(async () => {
+                attempts++;
+                try {
+                    const r = await fetch('/api/status?week=' + WEEK);
+                    const d = await r.json();
+                    const newEvents = (d.total || 0) - beforeTotal;
+                    
+                    if (newEvents > 0 || attempts > 20) {
+                        clearInterval(checkSync);
+                        if (popup && !popup.closed) popup.close();
+                        
+                        if (newEvents > 0) {
+                            showToast('✅ Synced! ' + newEvents + ' new events. Classifying...');
+                        } else if (d.total > 0) {
+                            showToast('✅ Sync complete. ' + d.total + ' events, no new ones.');
+                        } else {
+                            showToast('Sync sent. Refresh in a moment to see results.');
+                        }
+                        
+                        btn.disabled = false; btn.textContent = '🔄 Sync Now';
+                        
+                        // Auto-classify if there are unclassified events
+                        if (d.unclassified > 0) {
+                            classifyAll();
+                        } else if (newEvents > 0) {
+                            setTimeout(() => location.reload(), 1500);
+                        }
+                    }
+                } catch(e) {}
+            }, 3000);
+            
+            // Safety timeout
+            setTimeout(() => {
+                clearInterval(checkSync);
+                if (popup && !popup.closed) popup.close();
+                btn.disabled = false; btn.textContent = '🔄 Sync Now';
+                location.reload();
+            }, 90000);
         }
 
         async function classifyAll() {
