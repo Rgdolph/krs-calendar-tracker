@@ -18,6 +18,7 @@
         <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
             <a href="/" class="text-xl font-bold text-krs-700">&#128273; KRS Calendar Tracker</a>
             <div class="flex gap-2">
+                <button onclick="toggleBR()" id="br-btn" class="px-3 py-2 rounded-lg text-sm transition border"></button>
                 <button onclick="syncNow()" id="sync-btn" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition">🔄 Sync Now</button>
                 <button onclick="classifyNew()" id="classify-btn" class="bg-krs-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-krs-700 transition">🤖 Classify New</button>
                 <button onclick="reclassifyAll()" id="reclassify-btn" class="bg-gray-500 text-white px-3 py-2 rounded-lg text-sm hover:bg-gray-600 transition">🔄 Reclassify All</button>
@@ -49,6 +50,46 @@
         const WEEK = '{{ week }}';
         const APPS_SCRIPT_URL = '{{ config.apps_script_url }}';
         let pollTimer = null;
+        const BR_AGENTS = ['Brandon Dailey', 'Ryan Dolph'];
+
+        function isBRHidden() { return localStorage.getItem('hideBR') === '1'; }
+
+        function applyBRFilter() {
+            const hide = isBRHidden();
+            const btn = document.getElementById('br-btn');
+            btn.textContent = hide ? '👁 Show B&R' : '🙈 Hide B&R';
+            btn.className = hide
+                ? 'px-3 py-2 rounded-lg text-sm transition border border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100'
+                : 'px-3 py-2 rounded-lg text-sm transition border border-gray-300 bg-white text-gray-600 hover:bg-gray-100';
+
+            // Hide agent cards on dashboard
+            document.querySelectorAll('a[href*="/agent/"]').forEach(card => {
+                const name = card.querySelector('h3')?.textContent?.trim();
+                if (name && BR_AGENTS.includes(name)) {
+                    card.style.display = hide ? 'none' : '';
+                }
+            });
+            // Hide rows in week_events table
+            document.querySelectorAll('tr[id^="row-"]').forEach(row => {
+                const agentCell = row.querySelector('td');
+                if (agentCell && BR_AGENTS.includes(agentCell.textContent.trim())) {
+                    row.style.display = hide ? 'none' : '';
+                }
+            });
+            // Hide events on agent detail page (by checking URL)
+            // No action needed — agent pages show single agent
+            
+            // Update summary counts if on dashboard
+            updateSummaryIfNeeded(hide);
+        }
+
+        function toggleBR() {
+            localStorage.setItem('hideBR', isBRHidden() ? '0' : '1');
+            applyBRFilter();
+        }
+
+        // Apply on page load
+        document.addEventListener('DOMContentLoaded', applyBRFilter);
 
         function showToast(msg) {
             const t = document.getElementById('toast');
