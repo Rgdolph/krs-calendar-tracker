@@ -320,7 +320,7 @@ def sync_classified():
 @app.route("/api/webhook", methods=["POST"])
 def webhook_receive():
     """Receive pushed events from Apps Script (Option A: push architecture).
-    Apps Script calls this on a timer. Auto-classifies after ingestion."""
+    Apps Script calls this on a timer. Only inserts NEW events to stay fast."""
     import hashlib
     data = request.get_json(force=True, silent=True) or {}
     
@@ -340,19 +340,18 @@ def webhook_receive():
     # Map calendar IDs to agent names
     agents_map = {a["calendar_id"]: a["name"] for a in APP_CONFIG.get("agents", [])}
     
-    events = []
+    # Build incoming events
+    incoming = []
     for ev in raw_events:
-        # Skip all-day events (tasks, OOO markers, etc.)
         if ev.get("allDay"):
             continue
         title = ev.get("title", "(No Title)")
         agent = ev.get("agent", "Unknown")
-        # Resolve calendar_id to name
         if "@" in agent:
             agent = agents_map.get(agent, agent)
         start = ev.get("start", "")
         event_id = hashlib.md5(f"{agent}_{start}_{title}".encode()).hexdigest()
-        events.append({
+        incoming.append({
             "id": event_id,
             "agent_name": agent,
             "title": title,
@@ -363,21 +362,33 @@ def webhook_receive():
             "week_key": wk,
         })
     
-    db.upsert_events_bulk(events)
+    if not incoming:
+        return jsonify({"ok": True, "synced": 0, "skipped": len(raw_events), "week": wk, "new": 0})
     
-    # Auto-classify new events
-    unclassified = db.get_unclassified_events(wk)
+    # Get existing event IDs for this week to skip duplicates
+    existing_ids = db.get_event_ids_for_week(wk)
+    
+    new_events = [e for e in incoming if e["id"] not in existing_ids]
+    skipped = len(incoming) - len(new_events)
+    
+    if new_events:
+        db.upsert_events_bulk(new_events)
+    
+    # Auto-classify only if we got new events
     auto_classified = 0
-    if unclassified:
-        try:
-            classifier.classify_events_async(wk)
-            auto_classified = len(unclassified)
-        except Exception as e:
-            print(f"[webhook] Auto-classify error: {e}", flush=True)
+    if new_events:
+        unclassified = db.get_unclassified_events(wk)
+        if unclassified:
+            try:
+                classifier.classify_events_async(wk)
+                auto_classified = len(unclassified)
+            except Exception as e:
+                print(f"[webhook] Auto-classify error: {e}", flush=True)
     
     return jsonify({
         "ok": True,
-        "synced": len(events),
+        "synced": len(new_events),
+        "skipped": skipped,
         "week": wk,
         "auto_classifying": auto_classified
     })

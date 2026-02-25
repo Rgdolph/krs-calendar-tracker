@@ -151,6 +151,16 @@ def upsert_events_bulk(events):
     conn.commit()
     conn.close()
 
+def get_event_ids_for_week(week_key):
+    """Return a set of event IDs for a given week (fast lookup for dedup)."""
+    conn = get_db()
+    cur = conn.cursor()
+    ph = "%s" if _is_pg() else "?"
+    cur.execute(f"SELECT id FROM events WHERE week_key={ph}", (week_key,))
+    ids = {row[0] for row in cur.fetchall()}
+    conn.close()
+    return ids
+
 def get_events_for_week(week_key, agent_name=None):
     conn = get_db()
     cur = conn.cursor()
