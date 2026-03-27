@@ -2,10 +2,14 @@ from flask import Flask, render_template, request, jsonify, redirect, url_for
 from datetime import datetime, date, timedelta
 import os
 import database as db
+from database import EVENTS_TABLE, OVERRIDES_TABLE
 import classifier
 import calendar_source
 
 app = Flask(__name__)
+
+# Store last sync result per week for UI feedback
+_last_sync_result = {}
 
 @app.after_request
 def add_cors_headers(response):
@@ -125,43 +129,93 @@ def sync():
     raw_events = data.get("events", None)
     if raw_events:
         import hashlib
+        
+        # Build events and compute content hashes
         events = []
         for ev in raw_events:
             title = ev.get("title", "(No Title)")
             agent = ev.get("agent", "Unknown")
             start = ev.get("start", "")
             event_id = hashlib.md5(f"{agent}_{start}_{title}".encode()).hexdigest()
+            desc = ev.get("description", "")
+            location = ev.get("location", "")
+            status = ev.get("status", "confirmed")
+            end = ev.get("end", "")
+            # Content hash: hash of all meaningful fields
+            hash_input = f"{title}|{start}|{end}|{desc}|{location}|{agent}|{status}"
+            content_hash = hashlib.sha256(hash_input.encode()).hexdigest()[:16]
             events.append({
                 "id": event_id,
                 "agent_name": agent,
                 "title": title,
                 "start_time": start,
-                "end_time": ev.get("end", ""),
-                "description": ev.get("description", ""),
-                "location": ev.get("location", ""),
+                "end_time": end,
+                "description": desc,
+                "location": location,
                 "week_key": wk,
                 "is_all_day": ev.get("allDay", False),
-                "status": ev.get("status", "confirmed")
+                "status": status,
+                "content_hash": content_hash
             })
-        db.upsert_events_bulk(events)
         
-        # If events came with pre-classifications, apply them
+        # Incremental sync: compare hashes
+        existing_hashes = db.get_event_hashes_for_week(wk)
+        new_events = []
+        changed_events = []
+        unchanged_count = 0
+        for ev in events:
+            existing_hash = existing_hashes.get(ev["id"])
+            if existing_hash is None:
+                new_events.append(ev)
+            elif existing_hash != ev["content_hash"]:
+                changed_events.append(ev)
+            else:
+                unchanged_count += 1
+        
+        # Only upsert new + changed
+        to_upsert = new_events + changed_events
+        if to_upsert:
+            db.upsert_events_bulk(to_upsert)
+        
+        # If events came with pre-classifications, apply them (only for new events)
         classified = 0
+        raw_by_key = {}
+        for ev_raw, ev_db in zip(raw_events, events):
+            raw_by_key[ev_db["id"]] = ev_raw
         has_classifications = any(ev.get("classification") for ev in raw_events)
         if has_classifications:
             conn = db.get_db()
             cur = conn.cursor()
             ph = "%s" if db._is_pg() else "?"
-            for ev_raw, ev_db in zip(raw_events, events):
+            for ev in new_events:
+                ev_raw = raw_by_key.get(ev["id"], {})
                 cls = ev_raw.get("classification", "")
                 if cls:
-                    cur.execute(f"UPDATE events SET classification={ph}, confidence={ph}, ai_reasoning={ph} WHERE id={ph} AND week_key={ph}",
-                        (cls, ev_raw.get("confidence", 0.8), ev_raw.get("reasoning", ""), ev_db["id"], wk))
+                    cur.execute(f"UPDATE {EVENTS_TABLE} SET classification={ph}, confidence={ph}, ai_reasoning={ph} WHERE id={ph} AND week_key={ph}",
+                        (cls, ev_raw.get("confidence", 0.8), ev_raw.get("reasoning", ""), ev["id"], wk))
                     classified += 1
             conn.commit()
             conn.close()
         
-        return jsonify({"synced": len(events), "classified": classified, "week": wk})
+        # Auto-classify only new events
+        if new_events:
+            unclassified = db.get_unclassified_events(wk)
+            if unclassified:
+                try:
+                    classifier.classify_events_async(wk)
+                except Exception:
+                    pass
+        
+        result = {
+            "synced": len(raw_events),
+            "new": len(new_events),
+            "changed": len(changed_events),
+            "unchanged": unchanged_count,
+            "classified": classified,
+            "week": wk
+        }
+        _last_sync_result[wk] = result
+        return jsonify(result)
     
     # Fallback: try server-side fetch
     events = calendar_source.fetch_events(wk)
@@ -204,14 +258,17 @@ def status():
     conn = db.get_db()
     cur = conn.cursor()
     ph = "%s" if db._is_pg() else "?"
-    cur.execute(f"SELECT COUNT(*) FROM events WHERE week_key={ph}", (wk,))
+    cur.execute(f"SELECT COUNT(*) FROM {EVENTS_TABLE} WHERE week_key={ph}", (wk,))
     total = cur.fetchone()[0]
-    cur.execute(f"SELECT COUNT(*) FROM events WHERE week_key={ph} AND classification IS NOT NULL AND classification != ''", (wk,))
+    cur.execute(f"SELECT COUNT(*) FROM {EVENTS_TABLE} WHERE week_key={ph} AND classification IS NOT NULL AND classification != ''", (wk,))
     classified = cur.fetchone()[0]
-    cur.execute(f"SELECT COUNT(*) FROM events WHERE week_key={ph} AND classification='sales'", (wk,))
+    cur.execute(f"SELECT COUNT(*) FROM {EVENTS_TABLE} WHERE week_key={ph} AND classification='sales'", (wk,))
     sales = cur.fetchone()[0]
     conn.close()
-    return jsonify({"week": wk, "total": total, "classified": classified, "sales": sales, "unclassified": total - classified})
+    resp = {"week": wk, "total": total, "classified": classified, "sales": sales, "unclassified": total - classified}
+    if wk in _last_sync_result:
+        resp["last_sync"] = _last_sync_result.pop(wk)
+    return jsonify(resp)
 
 @app.route("/api/trigger-sync", methods=["POST"])
 def trigger_sync():
@@ -221,16 +278,33 @@ def trigger_sync():
     
     # Try syncing from Google Sheet (works without auth if sheet is published)
     try:
+        import hashlib as _hl
         events = calendar_source.fetch_events(wk)
         if events:
-            db.upsert_events_bulk(events)
-            # Auto-classify new events
-            unclassified = db.get_unclassified_events(wk)
-            if unclassified:
-                classifier.classify_events_async(wk)
-            return jsonify({"status": "synced", "week": wk, "synced": len(events), "classifying": len(unclassified) if unclassified else 0})
+            # Add content hashes
+            for ev in events:
+                hash_input = f"{ev.get('title','')}|{ev.get('start_time','')}|{ev.get('end_time','')}|{ev.get('description','')}|{ev.get('location','')}|{ev.get('agent_name','')}|{ev.get('status','')}"
+                ev['content_hash'] = _hl.sha256(hash_input.encode()).hexdigest()[:16]
+            
+            existing_hashes = db.get_event_hashes_for_week(wk)
+            new_events = [e for e in events if e['id'] not in existing_hashes]
+            changed_events = [e for e in events if e['id'] in existing_hashes and existing_hashes[e['id']] != e.get('content_hash','')]
+            unchanged_count = len(events) - len(new_events) - len(changed_events)
+            
+            to_upsert = new_events + changed_events
+            if to_upsert:
+                db.upsert_events_bulk(to_upsert)
+            
+            # Auto-classify only new events
+            classifying = 0
+            if new_events:
+                unclassified = db.get_unclassified_events(wk)
+                if unclassified:
+                    classifier.classify_events_async(wk)
+                    classifying = len(unclassified)
+            return jsonify({"status": "synced", "week": wk, "synced": len(events), "new": len(new_events), "changed": len(changed_events), "unchanged": unchanged_count, "classifying": classifying})
         else:
-            return jsonify({"status": "ok", "week": wk, "synced": 0, "message": "No events found. Auto-push runs every 15 min."})
+            return jsonify({"status": "ok", "week": wk, "synced": 0, "new": 0, "changed": 0, "unchanged": 0, "message": "No events found. Auto-push runs every 15 min."})
     except Exception as e:
         return jsonify({"status": "ok", "week": wk, "synced": 0, "message": f"Sheet sync unavailable ({e}). Auto-push runs every 15 min."})
 
@@ -310,7 +384,7 @@ def sync_classified():
     updated = 0
     for ev in events:
         if ev["classification"]:
-            cur.execute(f"UPDATE events SET classification={ph}, confidence={ph}, ai_reasoning={ph} WHERE id={ph} AND week_key={ph}",
+            cur.execute(f"UPDATE {EVENTS_TABLE} SET classification={ph}, confidence={ph}, ai_reasoning={ph} WHERE id={ph} AND week_key={ph}",
                 (ev["classification"], ev["confidence"], ev["ai_reasoning"], ev["id"], wk))
             updated += 1
     conn.commit()
