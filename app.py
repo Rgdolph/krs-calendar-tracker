@@ -2,7 +2,6 @@ from flask import Flask, render_template, request, jsonify, redirect, url_for
 from datetime import datetime, date, timedelta
 import os
 import database as db
-from database import EVENTS_TABLE, OVERRIDES_TABLE
 import classifier
 import calendar_source
 
@@ -184,18 +183,12 @@ def sync():
             raw_by_key[ev_db["id"]] = ev_raw
         has_classifications = any(ev.get("classification") for ev in raw_events)
         if has_classifications:
-            conn = db.get_db()
-            cur = conn.cursor()
-            ph = "%s" if db._is_pg() else "?"
             for ev in new_events:
                 ev_raw = raw_by_key.get(ev["id"], {})
                 cls = ev_raw.get("classification", "")
                 if cls:
-                    cur.execute(f"UPDATE {EVENTS_TABLE} SET classification={ph}, confidence={ph}, ai_reasoning={ph} WHERE id={ph} AND week_key={ph}",
-                        (cls, ev_raw.get("confidence", 0.8), ev_raw.get("reasoning", ""), ev["id"], wk))
+                    db.update_classification_by_id_week(ev["id"], wk, cls, ev_raw.get("confidence", 0.8), ev_raw.get("reasoning", ""))
                     classified += 1
-            conn.commit()
-            conn.close()
         
         # Auto-classify only new events
         if new_events:
@@ -255,16 +248,7 @@ def sync_redirect():
 @app.route("/api/status", methods=["GET"])
 def status():
     wk = request.args.get("week", current_week_key())
-    conn = db.get_db()
-    cur = conn.cursor()
-    ph = "%s" if db._is_pg() else "?"
-    cur.execute(f"SELECT COUNT(*) FROM {EVENTS_TABLE} WHERE week_key={ph}", (wk,))
-    total = cur.fetchone()[0]
-    cur.execute(f"SELECT COUNT(*) FROM {EVENTS_TABLE} WHERE week_key={ph} AND classification IS NOT NULL AND classification != ''", (wk,))
-    classified = cur.fetchone()[0]
-    cur.execute(f"SELECT COUNT(*) FROM {EVENTS_TABLE} WHERE week_key={ph} AND classification='sales'", (wk,))
-    sales = cur.fetchone()[0]
-    conn.close()
+    total, classified, sales = db.get_week_counts(wk)
     resp = {"week": wk, "total": total, "classified": classified, "sales": sales, "unclassified": total - classified}
     if wk in _last_sync_result:
         resp["last_sync"] = _last_sync_result.pop(wk)
@@ -378,17 +362,11 @@ def sync_classified():
     db.upsert_events_bulk(events)
     
     # Now update classifications directly
-    conn = db.get_db()
-    cur = conn.cursor()
-    ph = "%s" if db._is_pg() else "?"
     updated = 0
     for ev in events:
         if ev["classification"]:
-            cur.execute(f"UPDATE {EVENTS_TABLE} SET classification={ph}, confidence={ph}, ai_reasoning={ph} WHERE id={ph} AND week_key={ph}",
-                (ev["classification"], ev["confidence"], ev["ai_reasoning"], ev["id"], wk))
+            db.update_classification_by_id_week(ev["id"], wk, ev["classification"], ev["confidence"], ev["ai_reasoning"])
             updated += 1
-    conn.commit()
-    conn.close()
     return jsonify({"synced": len(events), "classified": updated, "week": wk})
 
 @app.route("/api/webhook", methods=["POST"])
